@@ -54,7 +54,9 @@ type MarketAPI interface {
 	ConfirmWorker(ctx context.Context, key *ecdsa.PrivateKey, slave common.Address) <-chan error
 	RemoveWorker(ctx context.Context, key *ecdsa.PrivateKey, master, slave common.Address) <-chan error
 	GetMaster(ctx context.Context, slave common.Address) (common.Address, error)
-	GetDealChangeRequestInfo(ctx context.Context, dealID *big.Int) (*pb.DealChangeRequest, error)
+	GetDealChangeRequestInfo(ctx context.Context, ID *big.Int) (*pb.DealChangeRequest, error)
+	CreateChangeRequest(ctx context.Context, key *ecdsa.PrivateKey, request *pb.DealChangeRequest) <-chan IDOrError
+	CancelChangeRequest(ctx context.Context, key *ecdsa.PrivateKey, id *big.Int) <-chan error
 	GetNumBenchmarks(ctx context.Context) (uint64, error)
 }
 
@@ -563,6 +565,66 @@ func (api *BasicMarketAPI) GetDealChangeRequestInfo(ctx context.Context, changeR
 		Price:       pb.NewBigInt(changeRequest.Price),
 		Status:      pb.ChangeRequestStatus(changeRequest.Status),
 	}, nil
+}
+
+func (api *BasicMarketAPI) CreateChangeRequest(ctx context.Context, key *ecdsa.PrivateKey, req *pb.DealChangeRequest) <-chan IDOrError {
+	ch := make(chan IDOrError, 0)
+	duration := big.NewInt(int64(req.GetDuration()))
+	go api.createChangeRequest(ctx, key, req.GetDealID().Unwrap(), req.GetPrice().Unwrap(), duration, ch)
+	return ch
+}
+
+func (api *BasicMarketAPI) createChangeRequest(ctx context.Context, key *ecdsa.PrivateKey, dealID, newPrice, newDuration *big.Int, ch chan<- IDOrError) {
+	opts := getTxOpts(ctx, key, defaultGasLimitForSidechain, api.gasPrice)
+	tx, err := api.marketContract.CreateChangeRequest(opts, dealID, newPrice, newDuration)
+	if err != nil {
+		ch <- IDOrError{ID: nil, Err: err}
+		return
+	}
+
+	log, err := waitForTransactionResult(ctx, api.client, api.logParsePeriod, tx, market.DealChangeRequestSentTopic)
+	if err != nil {
+		ch <- IDOrError{ID: nil, Err: err}
+		return
+	}
+
+	id, err := extractBig(log.Topics, 1)
+	if err != nil {
+		ch <- IDOrError{ID: nil, Err: errors.WithMessage(err, "cannot extract change request from transaction logs")}
+		return
+	}
+
+	ch <- IDOrError{ID: id, Err: nil}
+}
+
+func (api *BasicMarketAPI) CancelChangeRequest(ctx context.Context, key *ecdsa.PrivateKey, id *big.Int) <-chan error {
+	ch := make(chan error, 0)
+	go api.cancelChangeRequest(ctx, key, id, ch)
+	return ch
+}
+
+func (api *BasicMarketAPI) cancelChangeRequest(ctx context.Context, key *ecdsa.PrivateKey, id *big.Int, ch chan error) {
+	opts := getTxOpts(ctx, key, defaultGasLimitForSidechain, api.gasPrice)
+	tx, err := api.marketContract.CancelChangeRequest(opts, id)
+	if err != nil {
+		ch <- err
+		return
+	}
+
+	rec, err := WaitTransactionReceipt(ctx, api.client, defaultBlockConfirmations, api.logParsePeriod, tx)
+	if err != nil {
+		ch <- err
+		return
+	}
+
+	// TODO(sshaman1101): I have no idea how to parse log properly for this
+	_, err = FindLogByTopic(rec, market.DealChangeRequestUpdatedTopic)
+	if err != nil {
+		ch <- err
+		return
+	}
+
+	ch <- nil
 }
 
 func (api *BasicMarketAPI) GetNumBenchmarks(ctx context.Context) (uint64, error) {

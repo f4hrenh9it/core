@@ -239,7 +239,7 @@ func printDealsList(cmd *cobra.Command, deals []*pb.Deal) {
 		}
 
 		for _, deal := range deals {
-			printDealInfo(cmd, &pb.DealInfoReply{Deal: deal})
+			printDealInfo(cmd, &pb.DealInfoReply{Deal: deal}, nil)
 			cmd.Println()
 		}
 	} else {
@@ -248,7 +248,7 @@ func printDealsList(cmd *cobra.Command, deals []*pb.Deal) {
 
 }
 
-func printDealInfo(cmd *cobra.Command, info *pb.DealInfoReply) {
+func printDealInfo(cmd *cobra.Command, info *pb.DealInfoReply, changes *pb.DealChangeRequestsReply) {
 	if isSimpleFormat() {
 		deal := info.GetDeal()
 		isClosed := deal.GetStatus() == pb.DealStatus_DEAL_CLOSED
@@ -286,6 +286,16 @@ func printDealInfo(cmd *cobra.Command, info *pb.DealInfoReply) {
 
 		if lastBill.Unix() > 0 {
 			cmd.Printf("Last bill:    %s\r\n", lastBill.Format(time.RFC3339))
+		}
+
+		if changes != nil && len(changes.GetRequests()) > 0 {
+			cmd.Println("Change requests:")
+			for _, req := range changes.GetRequests() {
+				cmd.Printf("  id: %s,  new duration: %s, new price: %s USD/s\n",
+					req.GetId().Unwrap().String(),
+					time.Second*time.Duration(req.GetDuration()),
+					req.GetPrice().ToPriceString())
+			}
 		}
 
 		if info.Resources != nil {
