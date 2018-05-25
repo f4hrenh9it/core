@@ -116,12 +116,12 @@ func (d *dealsAPI) CreateChangeRequest(ctx context.Context, req *pb.DealChangeRe
 		return nil, errors.New("deal is not related to current user")
 	}
 
-	idOrErr := <-d.remotes.eth.Market().CreateChangeRequest(ctx, d.remotes.key, req)
-	if idOrErr.Err != nil {
-		return nil, errors.WithMessage(idOrErr.Err, "cannot approve change request")
+	id, err := d.remotes.eth.Market().CreateChangeRequest(ctx, d.remotes.key, req)
+	if err != nil {
+		return nil, errors.WithMessage(err, "cannot approve change request")
 	}
 
-	return pb.NewBigInt(idOrErr.ID), nil
+	return pb.NewBigInt(id), nil
 }
 
 func (d *dealsAPI) ApproveChangeRequest(ctx context.Context, id *pb.BigInt) (*pb.Empty, error) {
@@ -137,16 +137,16 @@ func (d *dealsAPI) ApproveChangeRequest(ctx context.Context, id *pb.BigInt) (*pb
 		Price:       req.GetPrice(),
 	}
 
-	idOrErr := <-d.remotes.eth.Market().CreateChangeRequest(ctx, d.remotes.key, matchingRequest)
-	if idOrErr.Err != nil {
-		return nil, errors.WithMessage(idOrErr.Err, "cannot approve change request")
+	_, err = d.remotes.eth.Market().CreateChangeRequest(ctx, d.remotes.key, matchingRequest)
+	if err != nil {
+		return nil, errors.WithMessage(err, "cannot approve change request")
 	}
 
 	return &pb.Empty{}, nil
 }
 
 func (d *dealsAPI) CancelChangeRequest(ctx context.Context, id *pb.BigInt) (*pb.Empty, error) {
-	if err := <-d.remotes.eth.Market().CancelChangeRequest(ctx, d.remotes.key, id.Unwrap()); err != nil {
+	if err := d.remotes.eth.Market().CancelChangeRequest(ctx, d.remotes.key, id.Unwrap()); err != nil {
 		return nil, fmt.Errorf("could not cancel change request: %v", err)
 	}
 

@@ -15,7 +15,6 @@ var (
 )
 
 func init() {
-
 	dealListCmd.PersistentFlags().Uint64Var(&dealsSearchCount, "limit", 10, "Deals count to show")
 	dealCloseCmd.PersistentFlags().BoolVar(&addToBlacklist, "blacklist", false, "Add counterparty to blacklist")
 
@@ -32,7 +31,6 @@ func init() {
 		dealCloseCmd,
 		changeRequestsRoot,
 	)
-
 }
 
 var dealRootCmd = &cobra.Command{
