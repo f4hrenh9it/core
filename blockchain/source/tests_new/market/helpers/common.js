@@ -8,8 +8,12 @@ export async function checkOrderStatus(market, orderId, status) {
     assert.equal(status, res[0]);
 }
 
-export async function getDealInfo(market, orderId) {
+export async function getDealIdFromOrder(market, consumer, orderId) {
     let orderParams = await market.GetOrderParams(orderId, {from: consumer});
-    let dealId = orderParams[1];
+    return orderParams[1].toNumber(10);
+}
+
+export async function getDealInfoFromOrder(market, consumer, orderId) {
+    let dealId = await getDealIdFromOrder(market, consumer, orderId);
     return await market.GetDealInfo(dealId, {from: consumer});
 }
