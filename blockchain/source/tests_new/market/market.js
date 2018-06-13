@@ -23,6 +23,7 @@ import assertRevert from '../helpers/assertRevert';
 import {eventInTransaction} from '../helpers/expectEvent';
 import {Ask} from './helpers/ask'
 import {Bid} from './helpers/bid'
+import {checkBenchmarks, checkOrderStatus, getDealInfo} from "./helpers/common";
 
 const SNMD = artifacts.require('./SNMD.sol');
 const Market = artifacts.require('./Market.sol');
@@ -932,13 +933,58 @@ contract('Market', async (accounts) => {
     //     assert.equal(stateBefore.toNumber(10) + 1, stateAfter.toNumber(10));
     //     assert.equal(balanceBefore.toNumber(10) - 7200 * 1e3, balanceAfter.toNumber(10));
     // });
-    //
-    // it('test UpdateBenchmarks', async function () {
-    //     await market.SetBenchmarksQuantity(20);
-    //     assert.equal((await market.GetBenchmarksQuantity()).toNumber(10), 20);
-    // });
-    //
-    // it('test SetProfileRegistryAddress: bug while we can cast any contract as valid (for example i cast token as a Profile Registry)', async function () { // eslint-disable-line max-len
-    //     await market.SetProfileRegistryAddress(token.address);
-    // });
+    describe('Benchmarks tests', async () => {
+
+        let newBenchmarks = [40, 21, 2, 256, 160, 1000, 1000, 6, 3, 1200, 1860000, 3000, 123];
+        let newBenchmarksWZero = [40, 21, 2, 256, 160, 1000, 1000, 6, 3, 1200, 1860000, 3000, 0];
+
+        it('Create deals with old and new benchmarks', async () => {
+
+            let askOld = await Ask({market, supplier});
+            let bidOld = await Bid({market, consumer});
+
+            await market.SetBenchmarksQuantity(13);
+
+            let bidNew = await Bid({market, consumer, benchmarks: newBenchmarksWZero});
+            let askNew = await Ask({market, supplier, benchmarks: newBenchmarks});
+
+            let bidInfo = await market.GetOrderInfo(bidNew, {from: consumer});
+            checkBenchmarks(bidInfo[orderInfo.benchmarks], newBenchmarksWZero);
+            let askInfo = await market.GetOrderInfo(askNew, {from: consumer});
+            checkBenchmarks(askInfo[orderInfo.benchmarks], newBenchmarks);
+
+            await market.OpenDeal(askOld, bidNew, {from: consumer});
+            await market.OpenDeal(askNew, bidOld, {from: consumer});
+
+            await checkOrderStatus(market, askOld, OrderStatus.INACTIVE);
+            await checkOrderStatus(market, bidOld, OrderStatus.INACTIVE);
+            await checkOrderStatus(market, bidNew, OrderStatus.INACTIVE);
+            await checkOrderStatus(market, askNew, OrderStatus.INACTIVE);
+
+            let dealInfo1 = await getDealInfo(market, bidNew);
+            checkBenchmarks(dealInfo1[DealInfo.benchmarks], newBenchmarksWZero);
+            let dealInfo2 = await getDealInfo(market, askNew);
+            checkBenchmarks(dealInfo2[DealInfo.benchmarks], newBenchmarks);
+        });
+
+        it('Create deal with new benchmarks', async () => {
+            let bid = await Bid({market, consumer, benchmarks: newBenchmarksWZero});
+            let ask = await Ask({market, supplier, benchmarks: newBenchmarks});
+            await market.OpenDeal(ask, bid, {from: consumer});
+            let dealInfo = await getDealInfo(bid);
+            checkBenchmarks(dealInfo[DealInfo.benchmarks], newBenchmarks);
+        });
+
+        it('UpdateBenchmarks count', async () => {
+            await market.SetBenchmarksQuantity(20);
+            assert.equal((await market.GetBenchmarksQuantity()).toNumber(10), 20);
+            await assertRevert(market.SetBenchmarksQuantity(12));
+        });
+
+    });
+
+    it('test SetProfileRegistryAddress: bug while we can cast any contract as valid (for example i cast token as a Profile Registry)', async () => { // eslint-disable-line max-len
+        await market.SetProfileRegistryAddress(token.address);
+        //TODO we need to do something with this. or not
+    });
 });
