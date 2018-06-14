@@ -1,3 +1,4 @@
+import {BigNumber} from 'bignumber.js';
 export const OrderType = {
     UNKNOWN: 0,
     BID: 1,
@@ -29,11 +30,10 @@ export const BlackListPerson = {
     MASTER: 2,
 };
 
-export const oraclePrice = 1e18;
+export const oraclePrice = 1e15;
 
 export const testDuration = 90000;
-export const testPrice = 1e15;
-export const billTolerance = 1e15;
+export const testPrice = 1e3;
 export const secInDay = 86400;
 export const secInHour = 3600;
 

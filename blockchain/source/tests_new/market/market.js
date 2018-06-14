@@ -1,11 +1,12 @@
 import {
-    billTolerance,
+    benchmarkQuantity,
     BlackListPerson,
     DealInfo,
     DealParams,
     DealStatus,
     defaultBenchmarks,
     IdentityLevel,
+    netflagsQuantity,
     oraclePrice,
     orderInfo,
     OrderParams,
@@ -15,12 +16,10 @@ import {
     secInHour,
     testDuration,
     testPrice,
-    benchmarkQuantity,
-    netflagsQuantity,
 } from "./helpers/constants";
 import increaseTime from '../helpers/increaseTime';
 import assertRevert from '../helpers/assertRevert';
-import {eventInTransaction} from '../helpers/expectEvent';
+import {eventInTransaction, allEventsInTransaction} from '../helpers/expectEvent';
 import {Ask} from './helpers/ask'
 import {Bid} from './helpers/bid'
 
@@ -60,8 +59,8 @@ contract('Market', async (accounts) => {
         await token.AddMarket(market.address);
         await blacklist.SetMarketAddress(market.address);
 
-        await token.transfer(consumer, 1000000 * oraclePrice, {from: accounts[0]});
-        await token.transfer(supplier, 1000000 * oraclePrice, {from: accounts[0]});
+        await token.transfer(consumer, oraclePrice / 1e7, {from: accounts[0]});
+        await token.transfer(supplier, oraclePrice / 1e7, {from: accounts[0]});
         await token.transfer(specialConsumer, 3600, {from: accounts[0]});
         await token.transfer(specialConsumer2, 3605, {from: accounts[0]});
     });
@@ -79,7 +78,7 @@ contract('Market', async (accounts) => {
             let info = await market.GetOrderInfo(oid, {from: supplier});
             assert.equal(OrderType.ASK, info[orderInfo.type]);
             assert.equal(supplier, info[orderInfo.author]);
-            assert.equal('0x0000000000000000000000000000000000000000', info[2]);
+            assert.equal('0x0000000000000000000000000000000000000000', info[orderInfo.counterparty]);
             assert.equal(testDuration, info[orderInfo.duration]);
             assert.equal(testPrice, info[orderInfo.price]);
             assert.equal(JSON.stringify([false, false, false]), JSON.stringify(info[orderInfo.netflags]));
@@ -111,13 +110,13 @@ contract('Market', async (accounts) => {
                 info[orderInfo.tag]);
             let b = info[9].map((item) => parseInt(item, 10));
             assert.equal(JSON.stringify(defaultBenchmarks), JSON.stringify(b));
-            assert.equal(secInDay * testPrice, info[10]);
+            assert.equal(secInDay * oraclePrice * testPrice / 1e18, info[orderInfo.frozenSum]);
 
             let balanceAfter = await token.balanceOf(consumer);
-            assert.equal(balanceBefore.toNumber(10) - secInDay * testPrice,
-                balanceAfter.toNumber(10));
+            assert.equal(balanceBefore.toNumber() - secInDay * oraclePrice * testPrice / 1e18,
+                balanceAfter.toNumber());
             let balance = await token.balanceOf(market.address);
-            assert.equal(secInDay * testPrice, balance)
+            assert.equal(secInDay * oraclePrice * testPrice / 1e18, balance);
             // TODO: test above normal deal
             // TODO: get balance and check block for 1 day
 
@@ -139,7 +138,8 @@ contract('Market', async (accounts) => {
             let balanceBefore = await token.balanceOf(consumer);
             await Bid({market, consumer, duration: 0});
             let balanceAfter = await token.balanceOf(consumer);
-            assert.equal(balanceBefore.toNumber(10) - secInHour * testPrice, balanceAfter.toNumber(10));
+            assert.equal(balanceBefore.toNumber() - secInHour * oraclePrice * testPrice / 1e18,
+                balanceAfter.toNumber());
         });
 
 
@@ -150,11 +150,11 @@ contract('Market', async (accounts) => {
             await market.CancelOrder(oid, {from: supplier});
 
             let balanceAfter = await token.balanceOf(supplier);
-            assert.equal(balanceBefore.toNumber(10), balanceAfter.toNumber(10));
+            assert.equal(balanceBefore.toNumber(), balanceAfter.toNumber());
 
             let res = await market.GetOrderParams(oid, {from: supplier});
-            assert.equal(OrderStatus.INACTIVE, res[0]);
-            assert.equal(0, res[1]);
+            assert.equal(OrderStatus.INACTIVE, res[OrderParams.status]);
+            assert.equal(0, res[OrderParams.dealId]);
             // TODO: verify order = inactive
             // TODO: verify token not(!) transfered
             // TODO: verify catch the event - not properly
@@ -171,7 +171,7 @@ contract('Market', async (accounts) => {
             await market.CancelOrder(oid, {from: consumer});
 
             let balanceAfter = await token.balanceOf(consumer);
-            assert.equal(balanceBefore.toNumber(10), balanceAfter.toNumber(10));
+            assert.equal(balanceBefore.toNumber(), balanceAfter.toNumber());
 
             let res = await market.GetOrderParams(oid, {from: consumer});
             assert.equal(OrderStatus.INACTIVE, res[OrderParams.status]);
@@ -188,12 +188,6 @@ contract('Market', async (accounts) => {
             let oid = await Bid({market, consumer});
             await assertRevert(market.CancelOrder(oid, {from: supplier}));
         });
-
-        // it('test CancelOrder: error case 3', async function () {
-        //     // error case - order does not exists
-        //     await assertRevert(market.CancelOrder(100500, {from: supplier}));
-        // });
-
     });
 
     describe('Deals:', async () => {
@@ -204,8 +198,8 @@ contract('Market', async (accounts) => {
 
             let askParams = await market.GetOrderParams(askId, {from: supplier});
             let bidParams = await market.GetOrderParams(bidId, {from: consumer});
-            assert.equal(OrderStatus.INACTIVE, askParams[0]);
-            assert.equal(OrderStatus.INACTIVE, bidParams[0]);
+            assert.equal(OrderStatus.INACTIVE, askParams[OrderParams.status]);
+            assert.equal(OrderStatus.INACTIVE, bidParams[OrderParams.status]);
 
             let dealId = bidParams[1];
             let dealInfo = await market.GetDealInfo(dealId, {from: consumer});
@@ -221,8 +215,8 @@ contract('Market', async (accounts) => {
 
             let askParams = await market.GetOrderParams(askId, {from: supplier});
             let bidParams = await market.GetOrderParams(bidId, {from: consumer});
-            assert.equal(OrderStatus.INACTIVE, askParams[0]);
-            assert.equal(OrderStatus.INACTIVE, bidParams[0]);
+            assert.equal(OrderStatus.INACTIVE, askParams[OrderParams.status]);
+            assert.equal(OrderStatus.INACTIVE, bidParams[OrderParams.status]);
 
             let dealId = bidParams[1];
             let dealInfo = await market.GetDealInfo(dealId, {from: consumer});
@@ -252,7 +246,153 @@ contract('Market', async (accounts) => {
         let presetFwdDealId;
         let presetFwdDealInfo;
         let presetFwdDealParams;
+        let presetSpotDealId;
+        let presetSpotDealInfo;
+        let presetSpotDealParams;
 
+        before(async () => {
+            let askId = await Ask({market, supplier});
+            let bidId = await Bid({market, consumer});
+            await market.OpenDeal(askId, bidId, {from: consumer});
+            let bidParams = await market.GetOrderParams(bidId, {from: consumer});
+            presetFwdDealId = bidParams[OrderParams.dealId];
+            presetFwdDealInfo = await market.GetDealInfo(presetFwdDealId, {from: consumer});
+            presetFwdDealParams = await market.GetDealParams(presetFwdDealId, {from: consumer});
+
+            let saskId = await Ask({market, supplier, duration: 0});
+            let sbidId = await Bid({market, consumer, duration: 0});
+            await market.OpenDeal(saskId, sbidId, {from: consumer});
+            let sbidParams = await market.GetOrderParams(sbidId, {from: consumer});
+            presetSpotDealId = sbidParams[OrderParams.dealId];
+            presetSpotDealInfo = await market.GetDealInfo(presetSpotDealId, {from: consumer});
+            presetSpotDealParams = await market.GetDealParams(presetSpotDealId, {from: consumer});
+
+            await increaseTime(secInHour / 2);
+        });
+
+        it('forward deal: balance is freezed for sum of one day', async () => {
+            let rate = (await oracle.getCurrentPrice()).toNumber();
+            let shouldBlocked = testPrice * secInDay * rate / 1e18;
+            // we do not cast getters as as struct
+            let nowBlocked = presetFwdDealParams[DealParams.blockedBalance].toNumber();
+            assert.equal(shouldBlocked, nowBlocked);
+        });
+
+        it('billing spot deal', async () => {
+            let consumerBalanceBefore = await token.balanceOf(consumer);
+            let supplierBalanceBefore = await token.balanceOf(supplier);
+
+            let lastBillTSBefore = presetSpotDealParams[DealParams.lastBillTs];
+
+            let tx = await market.Bill(presetSpotDealId, {from: supplier});
+
+            let consumerBalanceAfter = await token.balanceOf(consumer);
+            let supplierBalanceAfter = await token.balanceOf(supplier);
+
+            let dealParamsAfter = await market.GetDealParams(presetSpotDealId);
+
+            let lastBillTSAfter = dealParamsAfter[DealParams.lastBillTs];
+
+            let billPeriod = lastBillTSAfter.toNumber() - lastBillTSBefore.toNumber();
+
+            // check event
+            let event = await eventInTransaction(tx, 'Billed');
+            assert.equal(event.paidAmount.toNumber(), billPeriod * oraclePrice * testPrice / 1e18);
+
+            // console.log(`consumer after: ${consumerBalanceAfter.toFixed()}`);
+            // console.log(`consumer before: ${consumerBalanceBefore.toFixed()}`);
+            // console.log(`difference: ${consumerBalanceBefore.toNumber() - consumerBalanceAfter.toNumber()}`);
+            assert.equal(consumerBalanceAfter.toNumber(),
+                consumerBalanceBefore.toNumber() - event.paidAmount.toNumber());
+
+            // console.log(`supplier after: ${supplierBalanceAfter.toFixed()}`);
+            // console.log(`supplier before: ${supplierBalanceBefore.toFixed()}`);
+            // console.log(`difference: ${supplierBalanceAfter.toNumber() - supplierBalanceBefore.toNumber()}`);
+            assert.equal(supplierBalanceAfter.toNumber(),
+                supplierBalanceBefore.toNumber() + event.paidAmount.toNumber());
+        });
+
+        it('billing forward deal', async function () {
+            let deal = await market.GetDealParams(presetFwdDealId);
+            let consumerBalanceBefore = await token.balanceOf(consumer);
+            let supplierBalanceBefore = await token.balanceOf(supplier);
+
+            let lastBillTSBefore = deal[DealParams.lastBillTs];
+
+            let tx = await market.Bill(presetFwdDealId, {from: supplier});
+
+            let consumerBalanceAfter = await token.balanceOf(consumer);
+            let supplierBalanceAfter = await token.balanceOf(supplier);
+
+            let dealParamsAfter = await market.GetDealParams(presetFwdDealId);
+            let dealInfoAfter = await market.GetDealInfo(presetFwdDealId, {from: consumer});
+
+            let lastBillTSAfter = dealParamsAfter[DealParams.lastBillTs];
+
+            let billPeriod = lastBillTSAfter.toNumber() - lastBillTSBefore.toNumber();
+
+            // check event
+            let event = await eventInTransaction(tx, 'Billed');
+            assert.equal(event.paidAmount.toNumber(), billPeriod * oraclePrice * testPrice / 1e18);
+
+            // console.log(`consumer after: ${consumerBalanceAfter.toFixed()}`);
+            // console.log(`consumer before: ${consumerBalanceBefore.toFixed()}`);
+            // console.log(`difference: ${consumerBalanceBefore.toNumber() - consumerBalanceAfter.toNumber()}`);
+            assert.equal(consumerBalanceAfter.toNumber(),
+                consumerBalanceBefore.toNumber() - event.paidAmount.toNumber());
+
+            // console.log(`supplier after: ${supplierBalanceAfter.toFixed()}`);
+            // console.log(`supplier before: ${supplierBalanceBefore.toFixed()}`);
+            // console.log(`difference: ${supplierBalanceAfter.toNumber() - supplierBalanceBefore.toNumber()}`);
+            assert.equal(supplierBalanceAfter.toNumber(),
+                supplierBalanceBefore.toNumber() + event.paidAmount.toNumber());
+        });
+    });
+
+    describe('Workers:', () => {
+        it('RegisterWorker', async () => {
+            let tx = await market.RegisterWorker(master, {from: supplier});
+            await eventInTransaction(tx, 'WorkerAnnounced')
+        });
+
+        it('ConfirmWorker', async () => {
+            let stateBefore = await market.GetMaster(supplier);
+            let tx = await market.ConfirmWorker(supplier, {from: master});
+            let stateAfter = await market.GetMaster(supplier);
+            assert.ok(stateBefore !== stateAfter && stateAfter === master);
+            await eventInTransaction(tx, 'WorkerConfirmed')
+        });
+
+        it('RemoveWorker', async () => {
+            let tx = await market.RemoveWorker(supplier, master, {from: master});
+            let check = await market.GetMaster(supplier);
+            assert.equal(check, supplier);
+            await eventInTransaction(tx, 'WorkerRemoved')
+        });
+    });
+
+    // what to test if we using this api already? all fields?
+    // it('test GetDealInfo', async function () {
+    //     await market.GetDealInfo(2);
+    // });
+    //
+    // it('test GetDealParams', async function () {
+    //     await market.GetDealParams(1);
+    // });
+    //
+    // it('test GetOrderInfo', async function () {
+    //     await market.GetOrderInfo(2);
+    // });
+    //
+    // it('test GetOrderParams', async function () {
+    //     await market.GetOrderParams(2);
+    // });
+
+
+    describe('Change requests', () => {
+        let presetFwdDealId;
+        let presetFwdDealInfo;
+        let presetFwdDealParams;
         let presetSpotDealId;
         let presetSpotDealInfo;
         let presetSpotDealParams;
@@ -275,122 +415,56 @@ contract('Market', async (accounts) => {
             presetSpotDealParams = await market.GetDealParams(presetSpotDealId, {from: consumer});
         });
 
-        it('forward deal: balance is freezed for sum of one day', async () => {
-            let rate = (await oracle.getCurrentPrice()).toNumber(10);
-            let shouldBlocked = testPrice * secInDay * rate / oraclePrice;
-            let deal = await market.GetDealParams(presetFwdDealId);
-            // we do not cast getters as as struct
-            let nowBlocked = deal[DealParams.blockedBalance].toNumber(10);
-            assert.equal(shouldBlocked, nowBlocked);
+        it('create change request as supplier and close', async () => {
+            let chReqsBefore = await market.GetChangeRequestsAmount();
+            let newPrice = 1e2;
+            let newDuration = 90000;
+            let tx = await market.CreateChangeRequest(
+                presetFwdDealId,
+                newPrice,
+                newDuration,
+                {from: supplier});
+            let chReqsAfter = await market.GetChangeRequestsAmount();
+            assert.equal(chReqsBefore.toNumber() + 1, chReqsAfter.toNumber());
+            let setEventArgs = await eventInTransaction(tx, 'DealChangeRequestSet');
+            // console.log(`dealSetChangeRequest: ${JSON.stringify(setEventArgs)}`);
+            // assert.equal(1, setEventArgs.changeRequestID);
+            let updateEventArgs = await eventInTransaction(tx, 'DealChangeRequestUpdated');
+            let events = await allEventsInTransaction(tx, 'DealChangeRequestUpdated');
+            console.log(JSON.stringify(events));
+            // console.log(`dealUpdateChangeRequest: ${JSON.stringify(updateEventArgs)}`);
+            // assert.equal(0, updateEventArgs.changeRequestID);
+            assert.equal(1, 0);
         });
 
-        it('billing spot deal', async () => {
-            let deal = await market.GetDealParams(presetSpotDealId);
-            let consumerBalanceBefore = await token.balanceOf(consumer);
-            let supplierBalanceBefore = await token.balanceOf(supplier);
-
-            let lastBillTS = deal[DealParams.lastBillTs];
-            await increaseTime(secInHour);
-
-            let tx = await market.Bill(presetSpotDealId, {from: supplier});
-
-            let consumerBalanceAfter = await token.balanceOf(consumer);
-            let supplierBalanceAfter = await token.balanceOf(supplier);
-
-            let dealAfter = await market.GetDealParams(presetSpotDealId);
-            let lastBillAfter = dealAfter[DealParams.lastBillTs];
-            assert.ok(lastBillTS.toNumber(10) < lastBillAfter.toNumber(10));
-            let event = await eventInTransaction(tx, 'Billed');
-
-            expect(event.paidAmount).to.be.within(
-                (secInHour * testPrice) - billTolerance,
-                (secInHour * testPrice) + billTolerance,
-            );
-
-            expect(consumerBalanceAfter.toNumber(10)).to.be.within(
-                consumerBalanceBefore.toNumber(10) - (secInHour * testPrice) - billTolerance,
-                consumerBalanceBefore.toNumber(10) - (secInHour * testPrice) + billTolerance,
-            );
-
-            expect(supplierBalanceAfter.toNumber(10)).to.be.within(
-                supplierBalanceBefore.toNumber(10) + (secInHour * testPrice) - billTolerance,
-                supplierBalanceBefore.toNumber(10) + (secInHour * testPrice) + billTolerance,
-            )
-        });
-
-        // it('test Bill: forward 1', async function () {
-        //     let deal = await market.GetDealParams(1);
-        //     let lastBillTS = deal[6];
-        //     await increaseTime(2);
-        //     await market.Bill(1, {from: supplier});
-        //     let dealAfter = await market.GetDealParams(1);
-        //     let lastBillAfter = dealAfter[6];
-        //     assert.ok(lastBillTS.toNumber(10) < lastBillAfter.toNumber(10));
-        //     assert.equal(dealAfter[3].toNumber(10), 1);
+        // it('create change request as consumer', async () => {
+        //     let chReqsBefore = await market.GetChangeRequestsAmount();
+        //     let newPrice = 1e20;
+        //     let newDuration = 80000;
+        //     let tx = await market.CreateChangeRequest(
+        //         presetFwdDealId,
+        //         newPrice,
+        //         newDuration,
+        //         {from: consumer});
+        //     let chReqsAfter = await market.GetChangeRequestsAmount();
+        //     assert.equal(chReqsBefore.toNumber(10) + 1, chReqsAfter.toNumber(10));
+        //     let setEventArgs = await eventInTransaction(tx, 'DealChangeRequestSet');
+        //     console.log(`changereq: ${setEventArgs.changeRequestID}`);
+        //     assert.equal(2, setEventArgs.changeRequestID);
+        //     let updateEventArgs = await eventInTransaction(tx, 'DealChangeRequestUpdated');
+        //     console.log(`update changereq: ${updateEventArgs.changeRequestID}`)
+        //     assert.equal(0, updateEventArgs.changeRequestID);
         // });
 
-        // it('test Bill: forward 2', async function () {
-        //     let deal = await market.GetDealParams(1);
-        //     let lastBillTS = deal[6];
-        //     await increaseTime(2);
-        //     await market.Bill(1, {from: supplier});
-        //     let dealAfter = await market.GetDealParams(1);
-        //     let lastBillAfter = dealAfter[6];
-        //     assert.ok(lastBillTS.toNumber(10) < lastBillAfter.toNumber(10));
-        //     assert.equal(dealAfter[3].toNumber(10), 1);
-        // });
     });
 
-    describe('Workers:', () => {
-        it('RegisterWorker', async function () {
-            let tx = await market.RegisterWorker(master, {from: supplier});
-            await eventInTransaction(tx, 'WorkerAnnounced')
-        });
-
-        it('ConfirmWorker', async function () {
-            let stateBefore = await market.GetMaster(supplier);
-            let tx = await market.ConfirmWorker(supplier, {from: master});
-            let stateAfter = await market.GetMaster(supplier);
-            assert.ok(stateBefore !== stateAfter && stateAfter === master);
-            await eventInTransaction(tx, 'WorkerConfirmed')
-        });
-
-        it('RemoveWorker', async function () {
-            let tx = await market.RemoveWorker(supplier, master, {from: master});
-            let check = await market.GetMaster(supplier);
-            assert.equal(check, supplier);
-            await eventInTransaction(tx, 'WorkerRemoved')
-        });
-    });
-
-    // it('test USD price changing ', async function () {
-    //     await oracle.setCurrentPrice(2000000000000, {from: accounts[0]});
-    // });
-
-    // it('test GetDealInfo', async function () {
-    //     await market.GetDealInfo(2);
-    // });
-    //
-    // it('test GetDealParams', async function () {
-    //     await market.GetDealParams(1);
-    // });
-    //
-    // it('test GetOrderInfo', async function () {
-    //     await market.GetOrderInfo(2);
-    // });
-    //
-    // it('test GetOrderParams', async function () {
-    //     await market.GetOrderParams(2);
-    // });
-    //
-    //
     // it('test CreateChangeRequest for cancel: ask', async function () {
     //     let stateBefore = await market.GetChangeRequestsAmount();
     //     await market.CreateChangeRequest(1, 3, 100000, {from: supplier});
     //     let stateAfter = await market.GetChangeRequestsAmount();
     //     assert.equal(stateBefore.toNumber(10) + 1, stateAfter.toNumber(10));
     // });
-    //
+
     // it('test CancelChangeRequest after creation: ask', async function () {
     //     let lastCR = (await market.GetChangeRequestsAmount()).toNumber(10);
     //     let stateBefore = await market.GetChangeRequestInfo(lastCR);
