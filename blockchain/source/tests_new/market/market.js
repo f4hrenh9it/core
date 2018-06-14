@@ -25,6 +25,7 @@ import assertRevert from '../helpers/assertRevert';
 import {eventInTransaction, allEventsInTransaction} from '../helpers/expectEvent';
 import {Ask} from './helpers/ask'
 import {Bid} from './helpers/bid'
+import {checkBenchmarks, checkOrderStatus, getDealIdFromOrder, getDealInfoFromOrder} from "./helpers/common";
 
 const SNMD = artifacts.require('./SNMD.sol');
 const Market = artifacts.require('./Market.sol');
@@ -1127,8 +1128,11 @@ contract('Market', async (accounts) => {
 
     });
 
-    it('test SetProfileRegistryAddress: bug while we can cast any contract as valid (for example i cast token as a Profile Registry)', async () => { // eslint-disable-line max-len
-        await market.SetProfileRegistryAddress(token.address);
-        //TODO we need to do something with this. or not
+    describe('Govno', function () {
+        it('test SetProfileRegistryAddress: bug while we can cast any contract as valid (for example i cast token as a Profile Registry)', async () => { // eslint-disable-line max-len
+            await market.SetProfileRegistryAddress(token.address);
+            //TODO we need to do something with this. or not
+        });
     });
+
 });
