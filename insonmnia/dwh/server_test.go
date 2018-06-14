@@ -345,8 +345,8 @@ func TestDWH_GetOrderDetails(t *testing.T) {
 	if reply.Price.Unwrap().String() != "20015" {
 		t.Errorf("Expected %s, got %s (Price)", "20015", reply.Price.Unwrap().String())
 	}
-	if reply.Netflags != 7 {
-		t.Errorf("Expected %d, got %d (Netflags)", 7, reply.Netflags)
+	if reply.GetNetflags().GetFlags() != 7 {
+		t.Errorf("Expected %d, got %d (Netflags)", 7, reply.GetNetflags().GetFlags())
 	}
 	if reply.Blacklist != "blacklist_5" {
 		t.Errorf("Expected %s, got %s (Blacklist)", "blacklist_5", reply.Blacklist)
@@ -554,7 +554,7 @@ func TestDWH_monitor(t *testing.T) {
 		CounterpartyID: pb.NewEthAddress(common.HexToAddress("0x0")),
 		Duration:       10020,
 		Price:          pb.NewBigInt(big.NewInt(20010)),
-		Netflags:       7,
+		Netflags:       &pb.NetFlags{Flags: uint64(7)},
 		IdentityLevel:  pb.IdentityLevel_ANONYMOUS,
 		Blacklist:      "blacklist",
 		Tag:            []byte{0, 1},
@@ -1034,7 +1034,7 @@ func testBlacklistAddedRemoved() error {
 		return errors.Wrap(err, "onAddedToBlacklist failed")
 	}
 	if blacklistReply, err := monitorDWH.storage.GetBlacklist(
-		newSimpleConn(monitorDWH.db), &pb.BlacklistRequest{OwnerID: pb.NewEthAddress(common.HexToAddress("0xC"))}); err != nil {
+		newSimpleConn(monitorDWH.db), &pb.BlacklistRequest{UserID: pb.NewEthAddress(common.HexToAddress("0xC"))}); err != nil {
 		return errors.Wrap(err, "getBlacklist failed")
 	} else {
 		if blacklistReply.OwnerID.Unwrap().Hex() != common.HexToAddress("0xC").Hex() {
@@ -1047,7 +1047,7 @@ func testBlacklistAddedRemoved() error {
 		return errors.Wrap(err, "onRemovedFromBlacklist failed")
 	}
 	if repl, err := monitorDWH.storage.GetBlacklist(
-		newSimpleConn(monitorDWH.db), &pb.BlacklistRequest{OwnerID: pb.NewEthAddress(common.HexToAddress("0xC"))}); err != nil {
+		newSimpleConn(monitorDWH.db), &pb.BlacklistRequest{UserID: pb.NewEthAddress(common.HexToAddress("0xC"))}); err != nil {
 		return errors.Wrap(err, "getBlacklist (2) failed")
 	} else {
 		if len(repl.Addresses) > 0 {

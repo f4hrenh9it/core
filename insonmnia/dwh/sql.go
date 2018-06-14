@@ -78,7 +78,7 @@ func (m *sqlStorage) InsertDeal(conn queryConn, deal *pb.Deal) error {
 		deal.BlockedBalance.PaddedString(),
 		deal.TotalPayout.PaddedString(),
 		deal.LastBillTS.Seconds,
-		ask.GetOrder().Netflags,
+		ask.GetOrder().GetNetflags().GetFlags(),
 		ask.GetOrder().IdentityLevel,
 		bid.GetOrder().IdentityLevel,
 		ask.CreatorCertificates,
@@ -275,7 +275,7 @@ func (m *sqlStorage) InsertOrder(conn queryConn, order *pb.DWHOrder) error {
 		order.GetOrder().CounterpartyID.Unwrap().Hex(),
 		order.GetOrder().Duration,
 		order.GetOrder().Price.PaddedString(),
-		order.GetOrder().Netflags,
+		order.GetOrder().GetNetflags().GetFlags(),
 		uint64(order.GetOrder().IdentityLevel),
 		order.GetOrder().Blacklist,
 		order.GetOrder().Tag,
@@ -335,7 +335,7 @@ func (m *sqlStorage) GetOrderByID(conn queryConn, orderID *big.Int) (*pb.DWHOrde
 }
 
 func (m *sqlStorage) GetOrders(conn queryConn, r *pb.OrdersRequest) ([]*pb.DWHOrder, uint64, error) {
-	builder := m.builder().Select("*").From("Orders").
+	builder := m.builder().Select("*").From("Orders AS o").
 		Where("Status = ?", pb.OrderStatus_ORDER_ACTIVE)
 	if !r.DealID.IsZero() {
 		builder = builder.Where("DealID = ?", r.DealID.Unwrap().String())
@@ -388,6 +388,15 @@ func (m *sqlStorage) GetOrders(conn queryConn, r *pb.OrdersRequest) ([]*pb.DWHOr
 	if r.Benchmarks != nil {
 		builder = m.addBenchmarksConditionsWhere(builder, r.Benchmarks)
 	}
+
+	if len(r.SenderIDs) > 0 {
+		var senderIDs []string
+		for _, id := range r.SenderIDs {
+			senderIDs = append(senderIDs, id.Unwrap().Hex())
+		}
+		builder = m.builderWithBlacklistFilters(builder, senderIDs, senderIDs)
+	}
+
 	builder = m.builderWithSortings(builder, r.Sortings)
 	query, args, _ := m.builderWithOffsetLimit(builder, r.Limit, r.Offset).ToSql()
 	rows, count, err := m.runQuery(conn, strings.Join(m.tablesInfo.OrderColumns, ", "), r.WithCount, query, args...)
@@ -456,9 +465,9 @@ func (m *sqlStorage) GetMatchingOrders(conn queryConn, r *pb.MatchingOrdersReque
 			order.MasterID.Unwrap().Hex()},
 	})
 	if order.Order.OrderType == pb.OrderType_BID {
-		builder = m.newNetflagsWhere(builder, pb.CmpOp_GTE, order.Order.Netflags)
+		builder = m.newNetflagsWhere(builder, pb.CmpOp_GTE, order.Order.GetNetflags().GetFlags())
 	} else {
-		builder = m.newNetflagsWhere(builder, pb.CmpOp_LTE, order.Order.Netflags)
+		builder = m.newNetflagsWhere(builder, pb.CmpOp_LTE, order.Order.GetNetflags().GetFlags())
 	}
 	builder = builder.Where("IdentityLevel >= ?", order.Order.IdentityLevel).
 		Where("CreatorIdentityLevel <= ?", order.CreatorIdentityLevel)
@@ -466,23 +475,13 @@ func (m *sqlStorage) GetMatchingOrders(conn queryConn, r *pb.MatchingOrdersReque
 		builder = builder.Where(fmt.Sprintf("%s %s ?", getBenchmarkColumn(uint64(benchID)), benchOp), benchValue)
 	}
 	builder = m.builderWithSortings(builder, []*pb.SortingOption{{Field: "Price", Order: sortingOrder}})
-
-	// Filter orders that:
-	// 	1. have our Master/Author in their Master/Author/Blacklist blacklist,
-	//	2. whose Master/Author is in our Master/Author/Blacklist blacklist.
-	//
-	// TODO: I've found no way to write this embedded query using squirrel;
-	// just writing a `blacklistQuery` and using it as `builder = builder.Where(blacklistQuery)`
-	// doesn't work for PostgreSQL because subquery arguments are counted from $1.
 	var (
 		masterID    = order.MasterID.Unwrap().Hex()
 		authorID    = order.GetOrder().AuthorID.Unwrap().Hex()
 		blacklistID = order.GetOrder().GetBlacklist()
 	)
-	builder = builder.Where(`NOT EXISTS (SELECT * FROM Blacklists AS b WHERE (
-		(b.AdderID IN (o.MasterID, o.AuthorID, o.Blacklist) AND b.AddeeID IN (?, ?)) OR
-		(b.AdderID IN (?, ?, ?) AND b.AddeeID IN (o.MasterID, o.AuthorID))))`,
-		masterID, authorID, masterID, authorID, blacklistID)
+	builder = m.builderWithBlacklistFilters(builder, []string{masterID, authorID},
+		[]string{masterID, authorID, blacklistID})
 
 	query, args, _ := m.builderWithOffsetLimit(builder, r.Limit, r.Offset).ToSql()
 	rows, count, err := m.runQuery(conn, strings.Join(m.tablesInfo.OrderColumns, ", "), r.WithCount, query, args...)
@@ -561,7 +560,7 @@ func (m *sqlStorage) GetProfiles(conn queryConn, r *pb.ProfilesRequest) ([]*pb.P
 	}
 
 	if r.BlacklistQuery != nil && r.BlacklistQuery.Option == pb.BlacklistOption_IncludeAndMark {
-		blacklistReply, err := m.GetBlacklist(conn, &pb.BlacklistRequest{OwnerID: r.BlacklistQuery.OwnerID})
+		blacklistReply, err := m.GetBlacklist(conn, &pb.BlacklistRequest{UserID: r.BlacklistQuery.OwnerID})
 		if err != nil {
 			return nil, 0, errors.Wrap(err, "failed to")
 		}
@@ -760,8 +759,8 @@ func (m *sqlStorage) DeleteBlacklistEntry(conn queryConn, removerID, removeeID c
 func (m *sqlStorage) GetBlacklist(conn queryConn, r *pb.BlacklistRequest) (*pb.BlacklistReply, error) {
 	builder := m.builder().Select("*").From("Blacklists")
 
-	if !r.OwnerID.IsZero() {
-		builder = builder.Where("AdderID = ?", r.OwnerID.Unwrap().Hex())
+	if !r.UserID.IsZero() {
+		builder = builder.Where("AdderID = ?", r.UserID.Unwrap().Hex())
 	}
 	builder = m.builderWithSortings(builder, []*pb.SortingOption{})
 	query, args, _ := m.builderWithOffsetLimit(builder, r.Limit, r.Offset).ToSql()
@@ -789,9 +788,45 @@ func (m *sqlStorage) GetBlacklist(conn queryConn, r *pb.BlacklistRequest) (*pb.B
 	}
 
 	return &pb.BlacklistReply{
-		OwnerID:   r.OwnerID,
+		OwnerID:   r.UserID,
 		Addresses: addees,
 		Count:     count,
+	}, nil
+}
+
+func (m *sqlStorage) GetBlacklistsContainingUser(conn queryConn, r *pb.BlacklistRequest) (*pb.BlacklistsContainingUserReply, error) {
+	if r.UserID.IsZero() {
+		return nil, errors.New("UserID must be specified")
+	}
+	query, args, _ := m.builder().Select("AdderID").From("Blacklists").
+		Where("AddeeID = ?", r.UserID.Unwrap().Hex()).ToSql()
+	rows, count, err := m.runQuery(conn, "*", r.WithCount, query, args...)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to run query")
+	}
+	defer rows.Close()
+
+	var adders []*pb.EthAddress
+	for rows.Next() {
+		var adderID string
+		if err := rows.Scan(&adderID); err != nil {
+			return nil, errors.Wrap(err, "failed to scan BlacklistAddress row")
+		}
+
+		ethAddress, err := util.HexToAddress(adderID)
+		if err != nil {
+			return nil, errors.Errorf("failed to use `%s` as EthAddress", adderID)
+		}
+		adders = append(adders, pb.NewEthAddress(ethAddress))
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, errors.Wrap(err, "rows error")
+	}
+
+	return &pb.BlacklistsContainingUserReply{
+		Blacklists: adders,
+		Count:      count,
 	}, nil
 }
 
@@ -1046,6 +1081,24 @@ func (m *sqlStorage) addBenchmarksConditionsWhere(builder squirrel.SelectBuilder
 	return builder
 }
 
+// builderWithBlacklistFilters filters orders that:
+// 	1. have our Master/Author in their Master/Author/Blacklist blacklist,
+//	2. whose Master/Author is in our Master/Author/Blacklist blacklist.
+func (m *sqlStorage) builderWithBlacklistFilters(builder squirrel.SelectBuilder, addees, adders []string) squirrel.SelectBuilder {
+	blacklistsQuery := m.builder().Select("*").Prefix("NOT EXISTS (").Suffix(")").From("Blacklists AS b").
+		Where(squirrel.Or{
+			squirrel.And{
+				squirrel.Expr("b.AdderID IN (o.MasterID, o.AuthorID, o.Blacklist)"),
+				squirrel.Eq{"b.AddeeID": addees},
+			},
+			squirrel.And{
+				squirrel.Eq{"b.AdderID": adders},
+				squirrel.Expr("b.AddeeID IN (o.MasterID, o.AuthorID)"),
+			},
+		})
+	return builder.Where(blacklistsQuery)
+}
+
 func (m *sqlStorage) decodeDeal(rows *sql.Rows) (*pb.DWHDeal, error) {
 	var (
 		id                   = new(string)
@@ -1287,7 +1340,7 @@ func (m *sqlStorage) decodeOrder(rows *sql.Rows) (*pb.DWHOrder, error) {
 			CounterpartyID: pb.NewEthAddress(common.HexToAddress(*counterAgent)),
 			Duration:       *duration,
 			Price:          bigPrice,
-			Netflags:       *netflags,
+			Netflags:       &pb.NetFlags{Flags: *netflags},
 			IdentityLevel:  pb.IdentityLevel(*identityLevel),
 			Blacklist:      *blacklist,
 			Tag:            *tag,
