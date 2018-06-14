@@ -23,7 +23,7 @@ import assertRevert from '../helpers/assertRevert';
 import {eventInTransaction, allEventsInTransaction} from '../helpers/expectEvent';
 import {Ask} from './helpers/ask'
 import {Bid} from './helpers/bid'
-import {checkBenchmarks, checkOrderStatus, getDealIdFromOrder, getDealInfo} from "./helpers/common";
+import {checkBenchmarks, checkOrderStatus, getDealIdFromOrder, getDealInfoFromOrder} from "./helpers/common";
 
 const SNMD = artifacts.require('./SNMD.sol');
 const Market = artifacts.require('./Market.sol');
@@ -955,10 +955,10 @@ contract('Market', async (accounts) => {
             await market.OpenDeal(askOld, bidNew, {from: consumer});
             await market.OpenDeal(askNew, bidOld, {from: consumer});
 
-            await checkOrderStatus(market, askOld, OrderStatus.INACTIVE);
-            await checkOrderStatus(market, bidOld, OrderStatus.INACTIVE);
-            await checkOrderStatus(market, bidNew, OrderStatus.INACTIVE);
-            await checkOrderStatus(market, askNew, OrderStatus.INACTIVE);
+            await checkOrderStatus(market, supplier, askOld, OrderStatus.INACTIVE);
+            await checkOrderStatus(market, supplier, bidOld, OrderStatus.INACTIVE);
+            await checkOrderStatus(market, supplier, bidNew, OrderStatus.INACTIVE);
+            await checkOrderStatus(market, supplier, askNew, OrderStatus.INACTIVE);
 
             let dealInfo1 = await getDealInfoFromOrder(market,consumer, bidNew);
             checkBenchmarks(dealInfo1[DealInfo.benchmarks], newBenchmarksWZero);
@@ -970,7 +970,7 @@ contract('Market', async (accounts) => {
             let bid = await Bid({market, consumer, benchmarks: newBenchmarksWZero});
             let ask = await Ask({market, supplier, benchmarks: newBenchmarks});
             await market.OpenDeal(ask, bid, {from: consumer});
-            let dealInfo = await getDealInfo(bid);
+            let dealInfo = await getDealInfoFromOrder(market, consumer, bid);
             checkBenchmarks(dealInfo[DealInfo.benchmarks], newBenchmarks);
         });
 

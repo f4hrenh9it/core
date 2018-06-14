@@ -3,17 +3,17 @@ export async function checkBenchmarks(info, benchmarks) {
     assert.equal(JSON.stringify(benchmarks), JSON.stringify(b));
 }
 
-export async function checkOrderStatus(market, orderId, status) {
-    let res = await market.GetOrderParams(orderId, {from: supplier});
+export async function checkOrderStatus(market, key, orderId, status) {
+    let res = await market.GetOrderParams(orderId, {from: key});
     assert.equal(status, res[0]);
 }
 
-export async function getDealIdFromOrder(market, consumer, orderId) {
-    let orderParams = await market.GetOrderParams(orderId, {from: consumer});
+export async function getDealIdFromOrder(market, key, orderId) {
+    let orderParams = await market.GetOrderParams(orderId, {from: key});
     return orderParams[1].toNumber(10);
 }
 
-export async function getDealInfoFromOrder(market, consumer, orderId) {
-    let dealId = await getDealIdFromOrder(market, consumer, orderId);
-    return await market.GetDealInfo(dealId, {from: consumer});
+export async function getDealInfoFromOrder(market, key, orderId) {
+    let dealId = await getDealIdFromOrder(market, key, orderId);
+    return await market.GetDealInfo(dealId, {from: key});
 }
