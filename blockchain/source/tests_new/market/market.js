@@ -1,5 +1,6 @@
 import {
     benchmarkQuantity,
+    billTolerance,
     BlackListPerson,
     DealInfo,
     DealParams,
@@ -22,6 +23,7 @@ import assertRevert from '../helpers/assertRevert';
 import {eventInTransaction, allEventsInTransaction} from '../helpers/expectEvent';
 import {Ask} from './helpers/ask'
 import {Bid} from './helpers/bid'
+import {checkBenchmarks, checkOrderStatus, getDealIdFromOrder, getDealInfo} from "./helpers/common";
 
 const SNMD = artifacts.require('./SNMD.sol');
 const Market = artifacts.require('./Market.sol');
@@ -588,105 +590,70 @@ contract('Market', async (accounts) => {
     //     await increaseTime(2);
     //     assert.equal(stateBefore.toNumber(10) + 1, stateAfter.toNumber(10));
     // });
-    //
-    // it('test CloseDeal spot: close it when paid amount > blocked balance, not enough money', async function () {
-    //     await oracle.setCurrentPrice(1e12);
-    //     await market.PlaceOrder(
-    //         OrderType.ASK, // type
-    //         '0x0', // counter_party
-    //         0, // duration
-    //         1e6, // price
-    //         [0, 0, 0], // netflags
-    //         IdentityLevel.ANONIMOUS, // identity level
-    //         0x0, // blacklist
-    //         '00000', // tag
-    //         benchmarks, // benchmarks
-    //         {from: supplier});
-    //
-    //     await market.PlaceOrder(
-    //         OrderType.BID, // type
-    //         '0x0', // counter_party
-    //         0, // duration
-    //         1e6, // price
-    //         [0, 0, 0], // netflags
-    //         IdentityLevel.ANONIMOUS, // identity level
-    //         0x0, // blacklist
-    //         '00000', // tag
-    //         benchmarks, // benchmarks
-    //         {from: specialConsumer});
-    //     let ordersAmount = await market.GetOrdersAmount();
-    //     ordersAmount = ordersAmount.toNumber(10);
-    //     let stateBefore = await market.GetDealsAmount();
-    //     await market.OpenDeal(ordersAmount - 1, ordersAmount, {from: specialConsumer});
-    //     let dealId = (await market.GetDealsAmount()).toNumber(10);
-    //
-    //     let stateAfterOpen = await market.GetDealParams(dealId);
-    //     let stateAfter = await market.GetDealsAmount();
-    //     await increaseTime(2);
-    //
-    //     assert.equal(stateBefore.toNumber(10) + 1, stateAfter.toNumber(10));
-    //
-    //     await oracle.setCurrentPrice(1e18);
-    //     await market.CloseDeal(dealId, false, {from: specialConsumer});
-    //     let stateAfterClose = await market.GetDealParams(dealId);
-    //     assert.equal(stateAfterClose[3].toNumber(10), 2);
-    //     assert.equal(stateAfterClose[4].toNumber(10), 0); // balance
-    //     assert.equal(stateAfterClose[5].toNumber(10), 3600); // payout
-    //     assert.equal(stateAfterOpen[3].toNumber(10), 1);
-    //     assert.equal(stateAfterOpen[4].toNumber(10), 3600); // balance
-    //     assert.equal(stateAfterOpen[5].toNumber(10), 0); // payout
-    // });
-    //
-    // it('test CloseDeal spot: close it when paid amount > blocked balance', async function () {
-    //     await oracle.setCurrentPrice(1e12);
-    //     await market.PlaceOrder(
-    //         OrderType.ASK, // type
-    //         '0x0', // counter_party
-    //         0, // duration
-    //         1e6, // price
-    //         [0, 0, 0], // netflags
-    //         IdentityLevel.ANONIMOUS, // identity level
-    //         0x0, // blacklist
-    //         '00000', // tag
-    //         benchmarks, // benchmarks
-    //         {from: supplier});
-    //
-    //     await market.PlaceOrder(
-    //         OrderType.BID, // type
-    //         '0x0', // counter_party
-    //         0, // duration
-    //         1e6, // price
-    //         [0, 0, 0], // netflags
-    //         IdentityLevel.ANONIMOUS, // identity level
-    //         0x0, // blacklist
-    //         '00000', // tag
-    //         benchmarks, // benchmarks
-    //         {from: consumer});
-    //     let ordersAmount = await market.GetOrdersAmount();
-    //     ordersAmount = ordersAmount.toNumber(10);
-    //     let stateBefore = await market.GetDealsAmount();
-    //     await market.OpenDeal(ordersAmount - 1, ordersAmount, {from: consumer});
-    //     let dealId = (await market.GetDealsAmount()).toNumber(10);
-    //
-    //     let stateAfter = await market.GetDealsAmount();
-    //     let stateAfterOpen = await market.GetDealParams(dealId);
-    //     await increaseTime(2);
-    //     assert.equal(stateBefore.toNumber(10) + 1, stateAfter.toNumber(10));
-    //
-    //     await oracle.setCurrentPrice(1e18);
-    //
-    //     await market.CloseDeal(dealId, false, {from: consumer});
-    //     let stateAfterClose = await market.GetDealParams(dealId);
-    //     let infoAfterClose = await market.GetDealInfo(dealId);
-    //     let dealTime = stateAfterClose[2].toNumber(10) - infoAfterClose[6].toNumber(10);
-    //     assert.equal(stateAfterClose[3].toNumber(10), 2);
-    //     assert.equal(stateAfterClose[4].toNumber(10), 3600000000); // balance
-    //     assert.equal(stateAfterClose[5].toNumber(10), dealTime * 1e18 * 1e6 / 1e18); // payout
-    //     assert.equal(stateAfterOpen[3].toNumber(10), 1);
-    //     assert.equal(stateAfterOpen[4].toNumber(10), 3600); // balance
-    //     assert.equal(stateAfterOpen[5].toNumber(10), 0); // payout
-    // });
-    //
+
+
+    describe('Paid amount and blocked balance', async () => {
+        it('Close deal when next period sum > consumer balance', async function () {
+            await oracle.setCurrentPrice(1e12);
+            let askId = await Ask({market, supplier, price: 1e6, duration: 0});
+            let bidId = await Bid({market, consumer: specialConsumer2, price: 1e6, duration: 0});
+            await market.OpenDeal(askId, bidId, {from: specialConsumer2});
+            let dealId = await getDealIdFromOrder(market,specialConsumer2, askId);
+            increaseTime(3600);
+            await market.Bill(dealId, {from: supplier});
+            let stateAfterClose = await market.GetDealParams(dealId);
+            await market.GetDealInfo(dealId);
+            assert.equal(stateAfterClose[3].toNumber(10), 2);
+        });
+
+        it('Close deal when paid amount > blocked balance, not enough money', async function () {
+            await oracle.setCurrentPrice(1e12);
+            let askId = await Ask({market, supplier, price: 1e6, duration: 0});
+            let bidId = await Bid({market, consumer: specialConsumer, price: 1e6, duration: 0});
+
+            await market.OpenDeal(askId, bidId, {from: specialConsumer});
+            let dealId = await getDealIdFromOrder(market, askId);
+
+            let stateAfterOpen = await market.GetDealParams(dealId);
+            await increaseTime(2);
+
+            await oracle.setCurrentPrice(1e18);
+            await market.CloseDeal(dealId, false, {from: specialConsumer});
+            let stateAfterClose = await market.GetDealParams(dealId);
+            assert.equal(stateAfterClose[3].toNumber(10), 2);
+            assert.equal(stateAfterClose[4].toNumber(10), 0); // balance
+            assert.equal(stateAfterClose[5].toNumber(10), 3600); // payout
+            assert.equal(stateAfterOpen[3].toNumber(10), 1);
+            assert.equal(stateAfterOpen[4].toNumber(10), 3600); // balance
+            assert.equal(stateAfterOpen[5].toNumber(10), 0); // payout
+        });
+
+        it('Close deal when paid amount > blocked balance', async function () {
+            await oracle.setCurrentPrice(1e12);
+            let askId = await Ask({market, supplier, price: 1e6, duration: 0});
+            let bidId = await Bid({market, consumer, price: 1e6, duration: 0});
+
+            await market.OpenDeal(askId, bidId, {from: consumer});
+            let dealId = await getDealIdFromOrder(market, askId);
+            let stateAfterOpen = await market.GetDealParams(dealId);
+            await increaseTime(2);
+
+            await oracle.setCurrentPrice(1e18);
+
+            await market.CloseDeal(dealId, false, {from: consumer});
+            let stateAfterClose = await market.GetDealParams(dealId);
+            let infoAfterClose = await market.GetDealInfo(dealId);
+            let dealTime = stateAfterClose[2].toNumber(10) - infoAfterClose[6].toNumber(10);
+            assert.equal(stateAfterClose[3].toNumber(10), 2);
+            assert.equal(stateAfterClose[4].toNumber(10), 3600000000); // balance
+            assert.equal(stateAfterClose[5].toNumber(10), dealTime * 1e18 * 1e6 / 1e18); // payout
+            assert.equal(stateAfterOpen[3].toNumber(10), 1);
+            assert.equal(stateAfterOpen[4].toNumber(10), 3600); // balance
+            assert.equal(stateAfterOpen[5].toNumber(10), 0); // payout
+        });
+
+    });
+
     // it('test create deal from spot BID and forward ASK and close with blacklist', async function () {
     //     await oracle.setCurrentPrice(1e12);
     //     await market.PlaceOrder(
@@ -815,48 +782,7 @@ contract('Market', async (accounts) => {
     //     assert.equal(stateAfter[3].toNumber(10), 2);
     // });
     //
-    // it('test Bill spot: close it when next period sum > consumer balance', async function () {
-    //     await oracle.setCurrentPrice(1e12);
-    //     await market.PlaceOrder(
-    //         OrderType.ASK, // type
-    //         '0x0', // counter_party
-    //         0, // duration
-    //         1e6, // price
-    //         [0, 0, 0], // netflags
-    //         IdentityLevel.ANONIMOUS, // identity level
-    //         0x0, // blacklist
-    //         '00000', // tag
-    //         benchmarks, // benchmarks
-    //         {from: supplier});
-    //
-    //     await market.PlaceOrder(
-    //         OrderType.BID, // type
-    //         '0x0', // counter_party
-    //         0, // duration
-    //         1e6, // price
-    //         [0, 0, 0], // netflags
-    //         IdentityLevel.ANONIMOUS, // identity level
-    //         0x0, // blacklist
-    //         '00000', // tag
-    //         benchmarks, // benchmarks
-    //         {from: specialConsumer2});
-    //     let ordersAmount = await market.GetOrdersAmount();
-    //     ordersAmount = ordersAmount.toNumber(10);
-    //     let stateBefore = await market.GetDealsAmount();
-    //     await market.OpenDeal(ordersAmount - 1, ordersAmount, {from: specialConsumer2});
-    //     let dealId = (await market.GetDealsAmount()).toNumber(10);
-    //
-    //     let stateAfter = await market.GetDealsAmount();
-    //     await market.GetDealParams(dealId);
-    //     assert.equal(stateBefore.toNumber(10) + 1, stateAfter.toNumber(10));
-    //
-    //     increaseTime(3600);
-    //     await market.Bill(dealId, {from: specialConsumer2});
-    //     let stateAfterClose = await market.GetDealParams(dealId);
-    //     await market.GetDealInfo(dealId);
-    //     assert.equal(stateAfterClose[3].toNumber(10), 2);
-    //     await oracle.setCurrentPrice(1e18);
-    // });
+
     //
     // it('test Set new blacklist', async function () {
     //     let newBL = await Blacklist.new();
@@ -1006,13 +932,58 @@ contract('Market', async (accounts) => {
     //     assert.equal(stateBefore.toNumber(10) + 1, stateAfter.toNumber(10));
     //     assert.equal(balanceBefore.toNumber(10) - 7200 * 1e3, balanceAfter.toNumber(10));
     // });
-    //
-    // it('test UpdateBenchmarks', async function () {
-    //     await market.SetBenchmarksQuantity(20);
-    //     assert.equal((await market.GetBenchmarksQuantity()).toNumber(10), 20);
-    // });
-    //
-    // it('test SetProfileRegistryAddress: bug while we can cast any contract as valid (for example i cast token as a Profile Registry)', async function () { // eslint-disable-line max-len
-    //     await market.SetProfileRegistryAddress(token.address);
-    // });
+    describe('Benchmarks tests', async () => {
+
+        let newBenchmarks = [40, 21, 2, 256, 160, 1000, 1000, 6, 3, 1200, 1860000, 3000, 123];
+        let newBenchmarksWZero = [40, 21, 2, 256, 160, 1000, 1000, 6, 3, 1200, 1860000, 3000, 0];
+
+        it('Create deals with old and new benchmarks', async () => {
+            await oracle.setCurrentPrice(oraclePrice);
+            let askOld = await Ask({market, supplier});
+            let bidOld = await Bid({market, consumer});
+
+            await market.SetBenchmarksQuantity(13);
+
+            let bidNew = await Bid({market, consumer, benchmarks: newBenchmarksWZero});
+            let askNew = await Ask({market, supplier, benchmarks: newBenchmarks});
+
+            let bidInfo = await market.GetOrderInfo(bidNew, {from: consumer});
+            checkBenchmarks(bidInfo[orderInfo.benchmarks], newBenchmarksWZero);
+            let askInfo = await market.GetOrderInfo(askNew, {from: consumer});
+            checkBenchmarks(askInfo[orderInfo.benchmarks], newBenchmarks);
+
+            await market.OpenDeal(askOld, bidNew, {from: consumer});
+            await market.OpenDeal(askNew, bidOld, {from: consumer});
+
+            await checkOrderStatus(market, askOld, OrderStatus.INACTIVE);
+            await checkOrderStatus(market, bidOld, OrderStatus.INACTIVE);
+            await checkOrderStatus(market, bidNew, OrderStatus.INACTIVE);
+            await checkOrderStatus(market, askNew, OrderStatus.INACTIVE);
+
+            let dealInfo1 = await getDealInfoFromOrder(market,consumer, bidNew);
+            checkBenchmarks(dealInfo1[DealInfo.benchmarks], newBenchmarksWZero);
+            let dealInfo2 = await getDealInfoFromOrder(market,consumer, askNew);
+            checkBenchmarks(dealInfo2[DealInfo.benchmarks], newBenchmarks);
+        });
+
+        it('Create deal with new benchmarks', async () => {
+            let bid = await Bid({market, consumer, benchmarks: newBenchmarksWZero});
+            let ask = await Ask({market, supplier, benchmarks: newBenchmarks});
+            await market.OpenDeal(ask, bid, {from: consumer});
+            let dealInfo = await getDealInfo(bid);
+            checkBenchmarks(dealInfo[DealInfo.benchmarks], newBenchmarks);
+        });
+
+        it('UpdateBenchmarks count', async () => {
+            await market.SetBenchmarksQuantity(20);
+            assert.equal((await market.GetBenchmarksQuantity()).toNumber(10), 20);
+            await assertRevert(market.SetBenchmarksQuantity(12));
+        });
+
+    });
+
+    it('test SetProfileRegistryAddress: bug while we can cast any contract as valid (for example i cast token as a Profile Registry)', async () => { // eslint-disable-line max-len
+        await market.SetProfileRegistryAddress(token.address);
+        //TODO we need to do something with this. or not
+    });
 });
