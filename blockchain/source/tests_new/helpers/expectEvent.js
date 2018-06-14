@@ -12,7 +12,12 @@ const eventInTransaction = async (tx, eventName) => {
 };
 
 const allEventsInLogs = (logs, eventName) => {
-    const partLogs = logs.filter(logs => logs.event === eventName);
+    let partLogs;
+    if (eventName === undefined) {
+        partLogs = logs;
+    } else {
+        partLogs = logs.filter(logs => logs.event === eventName);
+    }
     const events = [];
     for (let l of partLogs) {
         events.push({event: l.event, args: l.args})

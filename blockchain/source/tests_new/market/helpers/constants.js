@@ -24,6 +24,14 @@ export const DealStatus = {
     CLOSED: 2,
 };
 
+export const RequestStatus = {
+    REQUEST_UNKNOWN: 0,
+    REQUEST_CREATED: 1,
+    REQUEST_CANCELED: 2,
+    REQUEST_REJECTED: 3,
+    REQUEST_ACCEPTED: 4,
+};
+
 export const BlackListPerson = {
     NOBODY: 0,
     WORKER: 1,
@@ -79,5 +87,13 @@ export const DealParams = {
     blockedBalance: 4,
     totalPayout: 5,
     lastBillTs: 6,
+};
+
+export const ChangeRequestInfo = {
+    dealID: 0,
+    requestType: 1,
+    price: 2,
+    duration: 3,
+    status: 4,
 };
 
