@@ -695,7 +695,7 @@ contract('Market', async (accounts) => {
         });
 
         it('fast accept price lowering request from supplier', async () => {
-            let newPrice = 1e3;
+            let newPrice = 1e4;
             await market.CreateChangeRequest(
                 presetFwdDealId,
                 newPrice,
@@ -705,6 +705,29 @@ contract('Market', async (accounts) => {
             // price changed
             let dealParamsAfter = await market.GetDealParams(presetFwdDealId);
             let priceAfter = dealParamsAfter[DealParams.price].toNumber();
+            assert.equal(newPrice, priceAfter);
+        });
+
+        it('create change requests pair for forward deal, price/duration changed', async () => {
+            let newPrice = 1e3;
+            let newDuration = 79000;
+
+            await market.CreateChangeRequest(
+                presetFwdDealId,
+                newPrice,
+                newDuration,
+                {from: supplier});
+
+            await market.CreateChangeRequest(
+                presetFwdDealId,
+                newPrice,
+                newDuration,
+                {from: consumer});
+
+            let dealParamsAfter = await market.GetDealParams(presetFwdDealId);
+            let durationAfter = dealParamsAfter[DealParams.duration].toNumber();
+            let priceAfter = dealParamsAfter[DealParams.price].toNumber();
+            assert.equal(newDuration, durationAfter);
             assert.equal(newPrice, priceAfter);
         });
     });

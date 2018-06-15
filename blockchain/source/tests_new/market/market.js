@@ -649,6 +649,29 @@ contract('Market', async (accounts) => {
             assert.equal(newDuration, durationAfter);
         });
 
+        it('create change requests pair for forward deal, price/duration changed', async () => {
+            let newPrice = 1e2;
+            let newDuration = 79000;
+
+            await market.CreateChangeRequest(
+                presetFwdDealId,
+                newPrice,
+                newDuration,
+                {from: consumer});
+
+            await market.CreateChangeRequest(
+                presetFwdDealId,
+                newPrice,
+                newDuration,
+                {from: supplier});
+
+            let dealParamsAfter = await market.GetDealParams(presetFwdDealId);
+            let durationAfter = dealParamsAfter[DealParams.duration].toNumber();
+            let priceAfter = dealParamsAfter[DealParams.price].toNumber();
+            assert.equal(newDuration, durationAfter);
+            assert.equal(newPrice, priceAfter);
+        });
+
         it('create change requests pair for spot deal, accept lower price', async () => {
             let newPrice = 1e3;
             increaseTime(20);
