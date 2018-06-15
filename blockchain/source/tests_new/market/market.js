@@ -26,6 +26,7 @@ import {eventInTransaction} from '../helpers/expectEvent';
 import {Ask} from './helpers/ask'
 import {Bid} from './helpers/bid'
 import {checkBenchmarks, checkOrderStatus, getDealIdFromOrder, getDealInfoFromOrder} from "./helpers/common";
+import {inspect} from "./helpers/printers";
 
 const SNMD = artifacts.require('./SNMD.sol');
 const Market = artifacts.require('./Market.sol');
@@ -47,6 +48,7 @@ contract('Market', async (accounts) => {
     let specialSupplier = accounts[6];
     let blacklistedSupplier = accounts[7];
     let specialMaster = accounts[8];
+    let supplierWithMaster = accounts[9];
 
     before(async () => {
         token = await SNMD.new();
@@ -305,6 +307,11 @@ contract('Market', async (accounts) => {
         let presetFwdDealId;
         let presetFwdDealInfo;
         let presetFwdDealParams;
+
+        let presetMasterFwdDealId;
+        let presetMasterFwdDealInfo;
+        let presetMasterFwdDealParams;
+
         let presetSpotDealId;
         let presetSpotDealInfo;
         let presetSpotDealParams;
@@ -317,6 +324,16 @@ contract('Market', async (accounts) => {
             presetFwdDealId = bidParams[OrderParams.dealId];
             presetFwdDealInfo = await market.GetDealInfo(presetFwdDealId, {from: consumer});
             presetFwdDealParams = await market.GetDealParams(presetFwdDealId, {from: consumer});
+
+            await market.RegisterWorker(master, {from: supplierWithMaster});
+            await market.ConfirmWorker(supplierWithMaster, {from: master});
+            let maskId = await Ask({market, supplier: supplierWithMaster});
+            let mbidId = await Bid({market, consumer});
+            await market.OpenDeal(maskId, mbidId, {from: consumer});
+            let mbidParams = await market.GetOrderParams(mbidId, {from: consumer});
+            presetMasterFwdDealId = mbidParams[OrderParams.dealId];
+            presetMasterFwdDealInfo = await market.GetDealInfo(presetMasterFwdDealId, {from: consumer});
+            presetMasterFwdDealParams = await market.GetDealParams(presetMasterFwdDealId, {from: consumer});
 
             let saskId = await Ask({market, supplier, duration: 0});
             let sbidId = await Bid({market, consumer, duration: 0});
@@ -401,23 +418,20 @@ contract('Market', async (accounts) => {
         });
 
         it('billing forward deal, with master', async function () {
-            await market.RegisterWorker(master, {from: supplier});
-            await market.ConfirmWorker(supplier, {from: master});
-
-            let deal = await market.GetDealParams(presetFwdDealId);
+            let deal = await market.GetDealParams(presetMasterFwdDealId);
             let consumerBalanceBefore = await token.balanceOf(consumer);
             let masterBalanceBefore = await token.balanceOf(master);
             let marketBalanceBefore = await token.balanceOf(market.address);
 
             let lastBillTSBefore = deal[DealParams.lastBillTs];
 
-            let tx = await market.Bill(presetFwdDealId, {from: supplier});
+            let tx = await market.Bill(presetMasterFwdDealId, {from: supplierWithMaster});
 
             let consumerBalanceAfter = await token.balanceOf(consumer);
             let masterBalanceAfter = await token.balanceOf(master);
             let marketBalanceAfter = await token.balanceOf(market.address);
 
-            let dealParamsAfter = await market.GetDealParams(presetFwdDealId);
+            let dealParamsAfter = await market.GetDealParams(presetMasterFwdDealId);
 
             let lastBillTSAfter = dealParamsAfter[DealParams.lastBillTs];
 
@@ -434,7 +448,7 @@ contract('Market', async (accounts) => {
                 masterBalanceBefore.toNumber() + event.paidAmount.toNumber());
             assert.equal(marketBalanceAfter.toNumber() - marketBalanceBefore.toNumber(), 0);
 
-            await market.RemoveWorker(supplier, master, {from: master});
+            await market.RemoveWorker(supplierWithMaster, master, {from: master});
         });
     });
 
