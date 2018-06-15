@@ -208,6 +208,7 @@ contract('Market', async (accounts) => {
         it('OpenDeal forward', async () => {
             let askId = await Ask({market, supplier});
             let bidId = await Bid({market, consumer});
+            let dealsAmountBefore = await market.GetDealsAmount({from: consumer});
             await market.OpenDeal(askId, bidId, {from: consumer});
 
             let askParams = await market.GetOrderParams(askId, {from: supplier});
@@ -215,8 +216,10 @@ contract('Market', async (accounts) => {
             assert.equal(OrderStatus.INACTIVE, askParams[OrderParams.status]);
             assert.equal(OrderStatus.INACTIVE, bidParams[OrderParams.status]);
             let dealId = bidParams[1];
+            let dealsAmountAfter = await market.GetDealsAmount({from: consumer});
             let dealInfo = await market.GetDealInfo(dealId, {from: consumer});
             let dealParams = await market.GetDealParams(dealId, {from: consumer});
+            assert.equal(dealsAmountBefore.toNumber() + 1, dealsAmountAfter.toNumber());
             assert.equal(DealStatus.ACCEPTED, dealParams[DealParams.status]);
             assert.ok(dealInfo[DealInfo.startTime].toNumber() === dealParams[DealParams.lastBillTs].toNumber(), "lastBillTs not equal to startTime");
             assert.equal(secInDay, dealParams[DealParams.blockedBalance].toNumber(), "Incorrect deal param blockedBalance");
@@ -1069,20 +1072,20 @@ contract('Market', async (accounts) => {
         });
     });
 
-    describe('Benchmarks tests', async () => {
+    describe('Benchmarks and Netflags tests', async () => {
 
         let newBenchmarks = [40, 21, 2, 256, 160, 1000, 1000, 6, 3, 1200, 1860000, 3000, 123];
         let newBenchmarksWZero = [40, 21, 2, 256, 160, 1000, 1000, 6, 3, 1200, 1860000, 3000, 0];
 
-        it('Create deals with old and new benchmarks', async () => {
+        it('Create deals with old and new benchmarks with resizing netflags', async () => {
             await oracle.setCurrentPrice(oraclePrice);
-            let askOld = await Ask({market, supplier});
-            let bidOld = await Bid({market, consumer});
+            let askOld = await Ask({market, supplier, netFlags: [0,0]});
+            let bidOld = await Bid({market, consumer, netFlags: [0,0]});
 
             await market.SetBenchmarksQuantity(13);
 
-            let bidNew = await Bid({market, consumer, benchmarks: newBenchmarksWZero});
-            let askNew = await Ask({market, supplier, benchmarks: newBenchmarks});
+            let bidNew = await Bid({market, consumer, netFlags: [0,0], benchmarks: newBenchmarksWZero});
+            let askNew = await Ask({market, supplier, netFlags: [0,0], benchmarks: newBenchmarks});
 
             let bidInfo = await market.GetOrderInfo(bidNew, {from: consumer});
             checkBenchmarks(bidInfo[orderInfo.benchmarks], newBenchmarksWZero);
@@ -1111,10 +1114,16 @@ contract('Market', async (accounts) => {
             checkBenchmarks(dealInfo[DealInfo.benchmarks], newBenchmarks);
         });
 
-        it('UpdateBenchmarks count', async () => {
+        it('Update Benchmarks count', async () => {
             await market.SetBenchmarksQuantity(20);
             assert.equal((await market.GetBenchmarksQuantity()).toNumber(10), 20);
             await assertRevert(market.SetBenchmarksQuantity(12));
+        });
+
+        it('Update Netflags count', async () => {
+            await market.SetNetflagsQuantity(5);
+            assert.equal((await market.GetNetflagsQuantity()).toNumber(10), 5);
+            await assertRevert(market.SetNetflagsQuantity(3));
         });
 
     });
@@ -1140,7 +1149,5 @@ contract('Market', async (accounts) => {
             await newOracle.setCurrentPrice(20000000000000);
             await market.SetOracleAddress(newOracle.address);
         });
-
     });
-
 });
