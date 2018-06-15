@@ -36,6 +36,7 @@ start_testrpc() {
     --account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501207,1000000000000000000000000"
     --account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501208,1000000000000000000000000"
     --account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501209,1000000000000000000000000"
+    --account="0x2bdd21761a483f71054e14f5b827213567971c676928d9a1808cbfa4b7501210,1000000000000000000000000"
   )
 
   if [ "$SOLIDITY_COVERAGE" = true ]; then
@@ -61,5 +62,5 @@ if [ "$SOLIDITY_COVERAGE" = true ]; then
     cat coverage/lcov.info | node_modules/.bin/coveralls
   fi
 else
-  node_modules/.bin/truffle test tests_new/market/market.js "$@"
+  node_modules/.bin/truffle test "$@"
 fi

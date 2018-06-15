@@ -20,9 +20,9 @@ import {
     testDuration,
     testPrice,
 } from "./helpers/constants";
-import increaseTime from '../helpers/increaseTime';
-import assertRevert from '../helpers/assertRevert';
-import {eventInTransaction} from '../helpers/expectEvent';
+import increaseTime from './helpers/increaseTime';
+import assertRevert from './helpers/assertRevert';
+import {eventInTransaction} from './helpers/expectEvent';
 import {Ask} from './helpers/ask'
 import {Bid} from './helpers/bid'
 import {checkBenchmarks, checkOrderStatus, getDealIdFromOrder, getDealInfoFromOrder} from "./helpers/common";
