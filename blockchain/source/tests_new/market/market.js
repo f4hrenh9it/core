@@ -140,7 +140,7 @@ contract('Market', async (accounts) => {
             let balanceBefore = await token.balanceOf(consumer);
             let marketBalanceBefore = await token.balanceOf(market.address);
 
-            let oid = await Bid({market, consumer, duration: secInDay /2});
+            let oid = await Bid({market, consumer, duration: secInDay / 2});
 
             let balanceAfter = await token.balanceOf(consumer);
             let marketBalanceAfter = await token.balanceOf(market.address);
@@ -267,6 +267,38 @@ contract('Market', async (accounts) => {
         });
     });
 
+    describe('Workers:', () => {
+        it('register worker', async () => {
+            let tx = await market.RegisterWorker(master, {from: supplier});
+            await eventInTransaction(tx, 'WorkerAnnounced')
+        });
+
+        it('confirm worker', async () => {
+            let masterBefore = await market.GetMaster(supplier);
+            let tx = await market.ConfirmWorker(supplier, {from: master});
+            let masterAfter = await market.GetMaster(supplier);
+            assert.ok(masterBefore !== masterAfter && masterAfter === master);
+            await eventInTransaction(tx, 'WorkerConfirmed')
+        });
+
+        it('remove worker from master', async () => {
+            let tx = await market.RemoveWorker(supplier, master, {from: master});
+            let masterAfter = await market.GetMaster(supplier);
+            assert.equal(masterAfter, supplier);
+            await eventInTransaction(tx, 'WorkerRemoved')
+        });
+
+        it('register/confirm worker, remove master from worker', async () => {
+            await market.RegisterWorker(master, {from: supplier});
+            await market.ConfirmWorker(supplier, {from: master});
+
+            let txRemove = await market.RemoveWorker(supplier, master, {from: supplier});
+            await eventInTransaction(txRemove, 'WorkerRemoved');
+            let masterAfter = await market.GetMaster(supplier);
+            assert.equal(masterAfter, supplier);
+        });
+    });
+
 
     describe('Bills:', () => {
         let presetFwdDealId;
@@ -366,27 +398,42 @@ contract('Market', async (accounts) => {
                 supplierBalanceBefore.toNumber() + event.paidAmount.toNumber());
             assert.equal(marketBalanceAfter.toNumber() - marketBalanceBefore.toNumber(), 0);
         });
-    });
 
-    describe('Workers:', () => {
-        it('RegisterWorker', async () => {
-            let tx = await market.RegisterWorker(master, {from: supplier});
-            await eventInTransaction(tx, 'WorkerAnnounced')
-        });
+        it('billing forward deal, with master', async function () {
+            await market.RegisterWorker(master, {from: supplier});
+            await market.ConfirmWorker(supplier, {from: master});
 
-        it('ConfirmWorker', async () => {
-            let stateBefore = await market.GetMaster(supplier);
-            let tx = await market.ConfirmWorker(supplier, {from: master});
-            let stateAfter = await market.GetMaster(supplier);
-            assert.ok(stateBefore !== stateAfter && stateAfter === master);
-            await eventInTransaction(tx, 'WorkerConfirmed')
-        });
+            let deal = await market.GetDealParams(presetFwdDealId);
+            let consumerBalanceBefore = await token.balanceOf(consumer);
+            let masterBalanceBefore = await token.balanceOf(master);
+            let marketBalanceBefore = await token.balanceOf(market.address);
 
-        it('RemoveWorker', async () => {
-            let tx = await market.RemoveWorker(supplier, master, {from: master});
-            let check = await market.GetMaster(supplier);
-            assert.equal(check, supplier);
-            await eventInTransaction(tx, 'WorkerRemoved')
+            let lastBillTSBefore = deal[DealParams.lastBillTs];
+
+            let tx = await market.Bill(presetFwdDealId, {from: supplier});
+
+            let consumerBalanceAfter = await token.balanceOf(consumer);
+            let masterBalanceAfter = await token.balanceOf(master);
+            let marketBalanceAfter = await token.balanceOf(market.address);
+
+            let dealParamsAfter = await market.GetDealParams(presetFwdDealId);
+
+            let lastBillTSAfter = dealParamsAfter[DealParams.lastBillTs];
+
+            let billPeriod = lastBillTSAfter.toNumber() - lastBillTSBefore.toNumber();
+
+            // check event
+            let event = await eventInTransaction(tx, 'Billed');
+            assert.equal(event.paidAmount.toNumber(), billPeriod * oraclePrice * testPrice / 1e18);
+
+            // check balances
+            assert.equal(consumerBalanceAfter.toNumber(),
+                consumerBalanceBefore.toNumber() - event.paidAmount.toNumber());
+            assert.equal(masterBalanceAfter.toNumber(),
+                masterBalanceBefore.toNumber() + event.paidAmount.toNumber());
+            assert.equal(marketBalanceAfter.toNumber() - marketBalanceBefore.toNumber(), 0);
+
+            await market.RemoveWorker(supplier, master, {from: master});
         });
     });
 
@@ -544,13 +591,13 @@ contract('Market', async (accounts) => {
             let newPrice = 1e3;
             increaseTime(20);
 
-            let conTx = await market.CreateChangeRequest(
+            await market.CreateChangeRequest(
                 presetFwdDealId,
                 newPrice,
                 testDuration,
                 {from: consumer});
 
-            let supTx = await market.CreateChangeRequest(
+            await market.CreateChangeRequest(
                 presetFwdDealId,
                 newPrice,
                 testDuration,
@@ -562,45 +609,88 @@ contract('Market', async (accounts) => {
             assert.equal(newPrice, priceAfter);
         });
 
-        // it('create change requests pair for forward deal, duration changed', async () => {
-        //     let newDuration = 80000;
-        //
-        //     let conTx = await market.CreateChangeRequest(
-        //         presetFwdDealId,
-        //         testPrice,
-        //         newDuration,
-        //         {from: consumer});
-        //     const conSetEvents = await allEventsInTransaction(conTx);
-        //     console.log(`consumer events: ${JSON.stringify(conSetEvents)}`);
-        //
-        //     let supTx = await market.CreateChangeRequest(
-        //         presetFwdDealId,
-        //         testPrice,
-        //         newDuration,
-        //         {from: supplier});
-        //     const supEvents = await allEventsInTransaction(supTx);
-        //     console.log(`supplier events: ${JSON.stringify(supEvents)}`);
-        //
-        //     let dealParamsAfter = await market.GetDealParams(presetFwdDealId);
-        //     let durationAfter = dealParamsAfter[DealParams.duration].toNumber();
-        //     assert.equal(newDuration, durationAfter);
-        //     // assert.equal(true, false);
-        // });
+        it('create change requests pair for forward deal, duration changed', async () => {
+            let newDuration = 80000;
+
+            await market.CreateChangeRequest(
+                presetFwdDealId,
+                testPrice,
+                newDuration,
+                {from: consumer});
+
+            await market.CreateChangeRequest(
+                presetFwdDealId,
+                testPrice,
+                newDuration,
+                {from: supplier});
+
+            let dealParamsAfter = await market.GetDealParams(presetFwdDealId);
+            let durationAfter = dealParamsAfter[DealParams.duration].toNumber();
+            assert.equal(newDuration, durationAfter);
+        });
+
+        it('create change requests pair for spot deal, accept lower price', async () => {
+            let newPrice = 1e3;
+            increaseTime(20);
+
+            await market.CreateChangeRequest(
+                presetSpotDealId,
+                newPrice,
+                0,
+                {from: consumer});
+
+            await market.CreateChangeRequest(
+                presetSpotDealId,
+                newPrice,
+                0,
+                {from: supplier});
+
+            let dealParamsAfter = await market.GetDealParams(presetSpotDealId, {from: consumer});
+
+            let priceAfter = dealParamsAfter[DealParams.price].toNumber();
+            assert.equal(newPrice, priceAfter);
+        });
+
+        it('create change requests pair for spot deal, duration not changed', async () => {
+            await assertRevert(
+                market.CreateChangeRequest(
+                    presetSpotDealId,
+                    testPrice,
+                    80000,
+                    {from: consumer})
+            );
+        });
+
+        it('fast accept price raising request from consumer', async () => {
+            let newPrice = 1e6;
+            await market.CreateChangeRequest(
+                presetFwdDealId,
+                newPrice,
+                80000,
+                {from: consumer});
+
+            // price changed
+            let dealParamsAfter = await market.GetDealParams(presetFwdDealId);
+            let priceAfter = dealParamsAfter[DealParams.price].toNumber();
+            assert.equal(newPrice, priceAfter);
+        });
+
+        it('fast accept price lowering request from supplier', async () => {
+            let newPrice = 1e3;
+            await market.CreateChangeRequest(
+                presetFwdDealId,
+                newPrice,
+                80000,
+                {from: supplier});
+
+            // price changed
+            let dealParamsAfter = await market.GetDealParams(presetFwdDealId);
+            let priceAfter = dealParamsAfter[DealParams.price].toNumber();
+            assert.equal(newPrice, priceAfter);
+        });
     });
 
 
-    // it('test CreateChangeRequest for spot deal: ask', async function () {
-    //     await market.CreateChangeRequest(2, 2, 0, {from: supplier});
-    // });
-    //
-    // it('test CreateChangeRequest for spot deal: bid', async function () {
-    //     await increaseTime(2);
-    //     await market.CreateChangeRequest(2, 2, 0, {from: consumer});
-    //     let newState = await market.GetDealParams(2);
-    //     let newPrice = newState[1].toNumber(10);
-    //     assert.equal(2, newPrice);
-    // });
-    //
     // it('test CreateChangeRequest for forward deal: bid', async function () {
     //     await market.CreateChangeRequest(1, 2, 2999, {from: consumer});
     // });
@@ -868,7 +958,6 @@ contract('Market', async (accounts) => {
     });
 
 
-
     //
     // it('test CreateChangeRequest for forward deal: fullcheck ask', async function () {
     //     let stateBefore = await market.GetDealParams(4);
@@ -1011,9 +1100,9 @@ contract('Market', async (accounts) => {
             await checkOrderStatus(market, supplier, bidNew, OrderStatus.INACTIVE);
             await checkOrderStatus(market, supplier, askNew, OrderStatus.INACTIVE);
 
-            let dealInfo1 = await getDealInfoFromOrder(market,consumer, bidNew);
+            let dealInfo1 = await getDealInfoFromOrder(market, consumer, bidNew);
             checkBenchmarks(dealInfo1[DealInfo.benchmarks], newBenchmarksWZero);
-            let dealInfo2 = await getDealInfoFromOrder(market,consumer, askNew);
+            let dealInfo2 = await getDealInfoFromOrder(market, consumer, askNew);
             checkBenchmarks(dealInfo2[DealInfo.benchmarks], newBenchmarks);
         });
 
